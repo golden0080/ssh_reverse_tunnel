@@ -1,6 +1,7 @@
 package ssh_reverse_tunnel
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -49,4 +50,37 @@ func tcpConnection(tcpEndpoint Endpoint) (*net.Conn, error) {
 		"tcp", tcpEndpoint.String(), tcpEndpoint.ConnectTimeout,
 	)
 	return &conn, err
+}
+
+func NewClient(config *ClientConfig) *Client {
+	return &Client{
+		Client: nil,
+		config: *config,
+		done:   nil,
+	}
+}
+
+func (c *Client) Connect() (err error) {
+	if c.Client != nil {
+		return nil
+	}
+
+	var sshConn *ssh.Client = nil
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New(fmt.Sprintf("%v", r))
+		}
+
+		if err == nil {
+			c.Client = sshConn
+		}
+	}()
+
+	sshConn, err = sshConnection(c.config.SSHServer, &c.config.ClientConfig)
+	if err != nil {
+		return err
+	}
+
+	// sshConn.Listen()
+	return nil
 }
