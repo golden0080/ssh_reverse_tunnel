@@ -124,23 +124,26 @@ func (c *Client) Connect() (err error) {
 
 func (c *Client) duplexCopy(remoteConn, localConn net.Conn) (err error) {
 	chDone := make(chan error, 2)
+	defer close(chDone)
 
 	// Start remote -> local data transfer
-	go func() {
+	go func(chDone chan<- error) {
+		defer recover()
 		_, err := io.Copy(remoteConn, localConn)
 		chDone <- errors.New(fmt.Sprintf("Remote write error: %s", err.Error()))
-	}()
+	}(chDone)
 
 	// Start local -> remote data transfer
-	go func() {
+	go func(chDone chan<- error) {
+		defer recover()
 		_, err := io.Copy(localConn, remoteConn)
 		chDone <- errors.New(fmt.Sprintf("Local write error: %s", err.Error()))
-	}()
+	}(chDone)
 
 	select {
 	case a := <-c.done:
 		c.done <- a
-		chDone <- CanelledError
+		err = CanelledError
 		break
 	case e := <-chDone:
 		err = e
