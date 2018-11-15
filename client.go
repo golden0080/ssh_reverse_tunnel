@@ -32,7 +32,8 @@ func (endpoint Endpoint) String() string {
 type ClientConfig struct {
 	ssh.ClientConfig
 
-	SSHServer Endpoint
+	RetryInterval time.Duration
+	SSHServer     Endpoint
 
 	Remote Endpoint
 	Local  Endpoint
@@ -62,6 +63,10 @@ func tcpConnection(tcpEndpoint Endpoint) (*net.Conn, error) {
 }
 
 func NewClient(config ClientConfig) *Client {
+	defaultRetryInterval := 1 * time.Second
+	if config.RetryInterval <= defaultRetryInterval {
+		config.RetryInterval = defaultRetryInterval
+	}
 	return &Client{
 		Client: nil,
 		config: config,
@@ -127,26 +132,29 @@ func (c *Client) duplexCopy(remoteConn, localConn net.Conn) (err error) {
 	defer close(chDone)
 
 	// Start remote -> local data transfer
-	go func(chDone chan<- error) {
-		defer recover()
+	go func() {
+		defer func() {
+			recover()
+		}()
 		_, err := io.Copy(remoteConn, localConn)
-		chDone <- errors.New(fmt.Sprintf("Remote write error: %s", err.Error()))
-	}(chDone)
+		chDone <- err
+	}()
 
 	// Start local -> remote data transfer
-	go func(chDone chan<- error) {
-		defer recover()
+	go func() {
+		defer func() {
+			recover()
+		}()
 		_, err := io.Copy(localConn, remoteConn)
-		chDone <- errors.New(fmt.Sprintf("Local write error: %s", err.Error()))
-	}(chDone)
+		chDone <- err
+	}()
 
 	select {
 	case a := <-c.done:
 		c.done <- a
 		err = CanelledError
 		break
-	case e := <-chDone:
-		err = e
+	case err = <-chDone:
 		break
 	}
 	return
@@ -163,6 +171,8 @@ func (c *Client) forward(listener net.Listener) (err error) {
 	config := c.config
 	for {
 		select {
+		case <-c.done:
+			return
 		default:
 			err = func() error {
 				localConn, err := net.DialTimeout(
@@ -184,6 +194,7 @@ func (c *Client) forward(listener net.Listener) (err error) {
 
 			if err != nil {
 				log.Printf("Connect Error: %s", err.Error())
+				time.Sleep(c.config.RetryInterval)
 			}
 		}
 	}
