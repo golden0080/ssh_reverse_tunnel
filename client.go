@@ -48,9 +48,9 @@ type Client struct {
 }
 
 func sshConnection(
-	server Endpoint, config *ssh.ClientConfig,
+	server Endpoint, config ssh.ClientConfig,
 ) (*ssh.Client, error) {
-	serverConn, err := ssh.Dial("tcp", server.String(), config)
+	serverConn, err := ssh.Dial("tcp", server.String(), &config)
 	return serverConn, err
 }
 
@@ -106,7 +106,7 @@ func (c *Client) Connect() (err error) {
 		}
 	}
 
-	sshConn, err = sshConnection(c.config.SSHServer, &c.config.ClientConfig)
+	sshConn, err = sshConnection(c.config.SSHServer, c.config.ClientConfig)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (c *Client) Connect() (err error) {
 }
 
 func (c *Client) duplexCopy(remoteConn, localConn net.Conn) (err error) {
-	chDone := make(chan error, 2)
+	chDone := make(chan error, 3)
 	defer close(chDone)
 
 	// Start remote -> local data transfer
